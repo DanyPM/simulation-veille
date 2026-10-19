@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>VEILLE-ILI - veille informationnelle</title>
-    <link rel="stylesheet" href="./styles.css?v=20261019c" />
+    <link rel="stylesheet" href="./styles.css?v=20261019d" />
   </head>
   <body data-mode="teacher">
     <header class="topbar">
@@ -149,6 +149,14 @@
           <input id="liveDbUrl" type="url" placeholder="https://votre-projet-default-rtdb.europe-west1.firebasedatabase.app" autocomplete="off" />
         </label>
         <div class="compose-grid">
+          <label>Clé API Web Firebase
+            <input id="liveApiKey" type="text" autocomplete="off" spellcheck="false" />
+          </label>
+          <label>Identifiant enseignant (à déclarer dans teachers)
+            <input id="liveTeacherId" type="text" readonly />
+          </label>
+        </div>
+        <div class="compose-grid">
           <label>Code de séance
             <input id="liveRoomCode" type="text" maxlength="28" autocomplete="off" />
           </label>
@@ -179,8 +187,9 @@
       </form>
     </dialog>
     <input id="fileInput" type="file" accept="application/json,.json" hidden />
-    <script src="./data/assets.js?v=20261019c"></script>
-    <script src="./data/scenarios/index.js?v=20261019c"></script>
-    <script src="./app.js?v=20261019c"></script>
+    <script src="./config-direct.js?v=20261019d"></script>
+    <script src="./data/assets.js?v=20261019d"></script>
+    <script src="./data/scenarios/index.js?v=20261019d"></script>
+    <script src="./app.js?v=20261019d"></script>
   </body>
 </html>

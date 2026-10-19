@@ -57,6 +57,8 @@ const els = {
   liveClassStatus: document.querySelector("#liveClassStatus"),
   liveDialog: document.querySelector("#liveDialog"),
   liveDbUrl: document.querySelector("#liveDbUrl"),
+  liveApiKey: document.querySelector("#liveApiKey"),
+  liveTeacherId: document.querySelector("#liveTeacherId"),
   liveRoomCode: document.querySelector("#liveRoomCode"),
   liveStudentLink: document.querySelector("#liveStudentLink"),
   liveDialogStatus: document.querySelector("#liveDialogStatus"),
@@ -1442,6 +1444,7 @@ function similarName(a, b) {
 }
 
 function formatCompact(value) {
+  value = Number(value) || 0;
   if (value >= 100000) return `${Math.round(value / 1000)} k`;
   if (value >= 1000) return `${(value / 1000).toFixed(1).replace(".", ",")} k`;
   return String(value);
@@ -1517,7 +1520,7 @@ function renderMedia(media, post) {
 
   return `
     <div class="post-media evidence-card">
-      <img class="evidence-image" src="${src}" alt="Image jointe à la publication" loading="lazy" />
+      <img class="evidence-image" src="${escapeHtml(src)}" alt="Image jointe à la publication" loading="lazy" />
     </div>
   `;
 }
@@ -1925,6 +1928,7 @@ function linkify(value) {
 }
 
 function formatNumber(value) {
+  value = Number(value) || 0;
   if (value >= 1000) return `${(value / 1000).toFixed(value >= 10000 ? 0 : 1).replace(".", ",")} k`;
   return String(value);
 }
@@ -2932,6 +2936,7 @@ function restoreTeacherPosts(scenario) {
 const liveSync = {
   enabled: false,
   dbUrl: "",
+  apiKey: "",
   room: "",
   expiresAt: 0,
   remotePosts: [],
@@ -2940,17 +2945,36 @@ const liveSync = {
   stream: null,
   reconnectTimer: null,
   inFlight: false,
-  pollDelay: 15000
+  pollDelay: 15000,
+  currentStream: null,
+  currentTimer: null,
+  currentReconnectTimer: null
+};
+
+const liveAuth = {
+  apiKey: "",
+  uid: "",
+  idToken: "",
+  expiresAt: 0
 };
 
 function isTeacherPage() {
   return document.body.dataset.mode === "teacher";
 }
 
+function directConfig() {
+  const config = window.VEILLE_ILI_DIRECT || {};
+  return {
+    dbUrl: String(config.dbUrl || "").trim(),
+    apiKey: String(config.apiKey || "").trim(),
+    authEmulator: String(config.authEmulator || "").trim().replace(/\/+$/, "")
+  };
+}
+
 function normalizeLiveDbUrl(value) {
   const url = String(value || "").trim().replace(/\/+$/, "");
   const isFirebase = /^https:\/\/[a-z0-9.-]+(?:firebasedatabase\.app|firebaseio\.com)$/i.test(url);
-  const isLocalTest = /^(?:http:\/\/)?(?:127\.0\.0\.1|localhost):\d+$/i.test(url)
+  const isLocalTest = /^(?:http:\/\/)?(?:127\.0\.0\.1|localhost):\d+(?:\/?\?ns=[a-z0-9-]+)?$/i.test(url)
     && ["127.0.0.1", "localhost"].includes(window.location.hostname);
   if (!isFirebase && !isLocalTest) {
     throw new Error("Adresse Firebase Realtime Database invalide.");
@@ -2984,21 +3008,116 @@ function decodeLiveValue(value) {
   return new TextDecoder().decode(bytes);
 }
 
-function liveRoomEndpoint(path = "") {
-  const suffix = path ? `/${path}` : "";
-  return `${liveSync.dbUrl}/rooms/${encodeURIComponent(liveSync.room)}${suffix}.json`;
+function liveEndpoint(path, token = "") {
+  const [base, query = ""] = liveSync.dbUrl.split("?");
+  const params = new URLSearchParams(query);
+  if (token) params.set("auth", token);
+  const search = params.toString();
+  return `${base.replace(/\/+$/, "")}/${path}.json${search ? `?${search}` : ""}`;
 }
 
-async function liveRequest(path = "", options = {}) {
-  if (!liveSync.dbUrl || !liveSync.room) throw new Error("Séance non configurée.");
-  const response = await fetch(liveRoomEndpoint(path), {
+function liveRoomEndpoint(path = "", token = "") {
+  const suffix = path ? `/${path}` : "";
+  return liveEndpoint(`rooms/${encodeURIComponent(liveSync.room)}${suffix}`, token);
+}
+
+function liveErrorMessage(status) {
+  if (status === 401 || status === 403) {
+    return `Écriture refusée (${status}). Vérifiez que l'identifiant enseignant ${liveAuth.uid || ""} est déclaré dans teachers et que la séance vous appartient.`;
+  }
+  return `Connexion refusée (${status}). Vérifiez l'adresse et les règles Firebase.`;
+}
+
+async function liveFetch(url, options = {}) {
+  const response = await fetch(url, {
     cache: "no-store",
     ...options,
     headers: { "Content-Type": "application/json", ...(options.headers || {}) }
   });
-  if (!response.ok) throw new Error(`Connexion refusée (${response.status}). Vérifiez l'adresse et les règles Firebase.`);
+  if (!response.ok) throw new Error(liveErrorMessage(response.status));
   if (response.status === 204) return null;
   return response.json();
+}
+
+async function liveRequest(path = "", options = {}) {
+  if (!liveSync.dbUrl || !liveSync.room) throw new Error("Séance non configurée.");
+  const { auth, ...fetchOptions } = options;
+  const token = auth ? await ensureLiveAuth() : "";
+  return liveFetch(liveRoomEndpoint(path, token), fetchOptions);
+}
+
+function authServiceUrl(service, path) {
+  const emulator = directConfig().authEmulator;
+  const base = emulator ? `${emulator}/${service}` : `https://${service}`;
+  return `${base}${path}?key=${encodeURIComponent(liveSync.apiKey)}`;
+}
+
+async function authRequest(service, path, body) {
+  const response = await fetch(authServiceUrl(service, path), {
+    method: "POST",
+    headers: {
+      "Content-Type": body instanceof URLSearchParams ? "application/x-www-form-urlencoded" : "application/json"
+    },
+    body
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const code = data?.error?.message || String(response.status);
+    const error = new Error(code === "OPERATION_NOT_ALLOWED" || code === "ADMIN_ONLY_OPERATION"
+      ? "Activez la connexion anonyme dans Firebase Authentication."
+      : `Authentification Firebase refusée (${code}).`);
+    error.authRejected = true;
+    throw error;
+  }
+  return data;
+}
+
+function readSavedLiveAuth() {
+  try {
+    return JSON.parse(localStorage.getItem("veille-ili:live-auth") || "{}");
+  } catch (error) {
+    return {};
+  }
+}
+
+function rememberLiveAuth(uid, idToken, refreshToken, expiresIn) {
+  liveAuth.apiKey = liveSync.apiKey;
+  liveAuth.uid = uid;
+  liveAuth.idToken = idToken;
+  liveAuth.expiresAt = Date.now() + (Number(expiresIn) || 3600) * 1000;
+  try {
+    localStorage.setItem("veille-ili:live-auth", JSON.stringify({ apiKey: liveSync.apiKey, uid, refreshToken }));
+  } catch (error) {
+    console.warn("Identifiant enseignant non mémorisé sur cet ordinateur.", error);
+  }
+}
+
+// Le refreshToken conserve le même uid d'un chargement à l'autre : cet uid est celui déclaré dans /teachers.
+async function ensureLiveAuth() {
+  if (!liveSync.apiKey) throw new Error("Clé API Web Firebase manquante.");
+  if (liveAuth.idToken && liveAuth.apiKey === liveSync.apiKey && liveAuth.expiresAt - 120000 > Date.now()) {
+    return liveAuth.idToken;
+  }
+  const saved = readSavedLiveAuth();
+  if (saved.apiKey === liveSync.apiKey && saved.refreshToken) {
+    try {
+      const refreshed = await authRequest("securetoken.googleapis.com", "/v1/token", new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: saved.refreshToken
+      }));
+      rememberLiveAuth(refreshed.user_id, refreshed.id_token, refreshed.refresh_token, refreshed.expires_in);
+      return liveAuth.idToken;
+    } catch (error) {
+      if (!error.authRejected) throw error;
+    }
+  }
+  const created = await authRequest("identitytoolkit.googleapis.com", "/v1/accounts:signUp", JSON.stringify({ returnSecureToken: true }));
+  rememberLiveAuth(created.localId, created.idToken, created.refreshToken, created.expiresIn);
+  return liveAuth.idToken;
+}
+
+function showLiveTeacherId() {
+  if (els.liveTeacherId) els.liveTeacherId.value = liveAuth.uid || "";
 }
 
 function buildStudentLiveUrl() {
@@ -3035,27 +3154,85 @@ function saveLiveConfig(active = liveSync.enabled) {
   if (!isTeacherPage()) return;
   localStorage.setItem("veille-ili:live-config", JSON.stringify({
     dbUrl: liveSync.dbUrl,
+    apiKey: liveSync.apiKey,
     room: liveSync.room,
     expiresAt: liveSync.expiresAt,
     active
   }));
 }
 
+function liveText(value, maxLength) {
+  return typeof value === "string" ? value.slice(0, maxLength) : "";
+}
+
+function liveCount(value) {
+  const number = Math.floor(Number(value));
+  return Number.isFinite(number) && number > 0 ? number : 0;
+}
+
+function deserializeLiveMedia(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const media = {
+    kind: liveText(raw.kind, 40) || "photo",
+    title: liveText(raw.title, 160),
+    caption: liveText(raw.caption, 240),
+    trace: liveText(raw.trace, 20)
+  };
+  if (typeof raw.asset === "string" && Object.hasOwn(evidenceAssets, raw.asset)) return { ...media, asset: raw.asset };
+  if (typeof raw.dataUrl === "string" && /^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(raw.dataUrl)) {
+    return { ...media, dataUrl: raw.dataUrl };
+  }
+  return null;
+}
+
+function deserializeLiveComments(rawComments, scenario, postId) {
+  const list = Array.isArray(rawComments) ? rawComments : Object.values(rawComments || {});
+  return list.slice(0, 20).map((comment, index) => {
+    const handle = typeof comment?.actor === "string" ? comment.actor : comment?.actor?.handle;
+    return {
+      id: `${postId}-comment-${index}`,
+      actor: actorByHandle(scenario, handle),
+      content: liveText(comment?.content, 520),
+      likes: liveCount(comment?.likes)
+    };
+  }).filter((comment) => comment.actor && comment.content);
+}
+
+function serializeLiveComments(comments) {
+  return (comments || []).map((comment) => ({
+    id: comment.id,
+    actor: comment.actor?.handle || comment.actor,
+    content: comment.content,
+    likes: Number(comment.likes) || 0
+  }));
+}
+
 function deserializeLivePost(raw, scenario) {
-  if (!raw || raw.scenarioId !== scenario.id) return null;
+  if (!raw || typeof raw !== "object" || raw.scenarioId !== scenario.id) return null;
   const actor = actorByHandle(scenario, raw.actor);
   if (!actor) return null;
+  const id = liveText(raw.id, 120).replace(/[^A-Za-z0-9_-]/g, "");
+  if (!id) return null;
   const now = parisNow();
-  const liveDate = new Date(raw.liveDate || now);
+  const parsedDate = new Date(raw.liveDate);
+  const liveDate = Number.isNaN(parsedDate.getTime()) ? now : parsedDate;
   return normalizePostEngagement({
-    ...raw,
+    id,
+    scenarioId: scenario.id,
     actor,
+    content: liveText(raw.content, 520),
+    language: /^[a-z]{2}$/.test(raw.language) ? raw.language : actor.language || "fr",
+    translation: liveText(raw.translation, 1200),
+    likes: liveCount(raw.likes),
+    reposts: liveCount(raw.reposts),
+    replies: liveCount(raw.replies),
+    media: deserializeLiveMedia(raw.media),
     liveDate,
     time: formatTime(liveDate),
     relativeTime: formatRelativeTime(liveDate, now),
     teacherCreated: true,
     liveRemote: true,
-    comments: Array.isArray(raw.comments) ? raw.comments : []
+    comments: deserializeLiveComments(raw.comments, scenario, id)
   }, now);
 }
 
@@ -3138,11 +3315,33 @@ async function pollLiveRoom() {
   }
 }
 
+async function publishCurrentSession(active) {
+  if (!isTeacherPage() || !liveSync.dbUrl || !liveSync.room) return false;
+  try {
+    const token = await ensureLiveAuth();
+    await liveFetch(liveEndpoint("current", token), {
+      method: "PUT",
+      body: JSON.stringify({
+        room: liveSync.room,
+        scenarioId: state.scenario?.id || "",
+        owner: liveAuth.uid,
+        expiresAt: liveSync.expiresAt,
+        active,
+        updatedAt: new Date().toISOString()
+      })
+    });
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
 async function announceLiveScenario() {
   if (!isTeacherPage() || !liveSync.enabled || !state.scenario) return;
   try {
     await liveRequest("meta", {
       method: "PATCH",
+      auth: true,
       body: JSON.stringify({
         scenarioId: state.scenario.id,
         scenarioTitle: state.scenario.title,
@@ -3150,6 +3349,7 @@ async function announceLiveScenario() {
         active: true
       })
     });
+    await publishCurrentSession(true);
   } catch (error) {
     setLiveStatus("error", "Direct déconnecté");
   }
@@ -3157,9 +3357,10 @@ async function announceLiveScenario() {
 
 async function publishLivePost(post) {
   if (!isTeacherPage() || !liveSync.enabled) return;
-  const payload = { ...serializeTeacherPost(post), comments: post.comments || [] };
+  const { suspect, reason, ...shared } = serializeTeacherPost(post);
+  const payload = { ...shared, comments: serializeLiveComments(post.comments) };
   try {
-    await liveRequest(`posts/${post.id}`, { method: "PUT", body: JSON.stringify(payload) });
+    await liveRequest(`posts/${post.id}`, { method: "PUT", auth: true, body: JSON.stringify(payload) });
     await announceLiveScenario();
     setLiveStatus("connected", `Publié dans ${liveSync.room}`);
   } catch (error) {
@@ -3171,7 +3372,7 @@ async function publishLivePost(post) {
 async function deleteLivePost(postId) {
   if (!isTeacherPage() || !liveSync.enabled) return;
   try {
-    await liveRequest(`posts/${postId}`, { method: "DELETE" });
+    await liveRequest(`posts/${postId}`, { method: "DELETE", auth: true });
   } catch (error) {
     setLiveStatus("error", "Suppression distante impossible");
   }
@@ -3181,9 +3382,14 @@ function fillLiveDialog() {
   if (!els.liveDialog) return;
   if (!liveSync.room) liveSync.room = createLiveRoomCode();
   els.liveDbUrl.value = liveSync.dbUrl;
+  if (els.liveApiKey) els.liveApiKey.value = liveSync.apiKey;
   els.liveRoomCode.value = liveSync.room;
   els.liveStudentLink.value = buildStudentLiveUrl();
+  showLiveTeacherId();
   setLiveStatus(liveSync.enabled ? "connected" : "waiting", liveSync.enabled ? `Direct ${liveSync.room}` : "Séance hors ligne");
+  if (liveSync.apiKey && !liveAuth.uid) {
+    ensureLiveAuth().then(showLiveTeacherId).catch((error) => setLiveStatus("error", error.message));
+  }
 }
 
 function openLiveDialog() {
@@ -3194,10 +3400,14 @@ function openLiveDialog() {
 async function startLiveSession() {
   try {
     liveSync.dbUrl = normalizeLiveDbUrl(els.liveDbUrl?.value);
+    liveSync.apiKey = String(els.liveApiKey?.value || "").trim();
     liveSync.room = normalizeLiveRoom(els.liveRoomCode?.value || createLiveRoomCode());
+    await ensureLiveAuth();
+    showLiveTeacherId();
     liveSync.enabled = true;
     const meta = {
       active: true,
+      owner: liveAuth.uid,
       scenarioId: state.scenario?.id || "",
       scenarioTitle: state.scenario?.title || "",
       startedAt: new Date().toISOString(),
@@ -3205,11 +3415,12 @@ async function startLiveSession() {
       expiresAt: Date.now() + 12 * 60 * 60 * 1000
     };
     liveSync.expiresAt = meta.expiresAt;
-    await liveRequest("meta", { method: "PUT", body: JSON.stringify(meta) });
+    await liveRequest("meta", { method: "PUT", auth: true, body: JSON.stringify(meta) });
     saveLiveConfig(true);
     liveSync.signature = "";
     els.liveStudentLink.value = buildStudentLiveUrl();
-    setLiveStatus("connected", `Direct ${liveSync.room}`);
+    const announced = await publishCurrentSession(true);
+    setLiveStatus("connected", announced ? `Direct ${liveSync.room}` : `Direct ${liveSync.room} · lien élève requis`);
     connectLiveStream();
     scheduleLivePoll(0);
   } catch (error) {
@@ -3222,7 +3433,9 @@ async function startLiveSession() {
 async function stopLiveSession() {
   if (liveSync.enabled) {
     try {
-      await liveRequest("meta", { method: "PATCH", body: JSON.stringify({ active: false, updatedAt: new Date().toISOString() }) });
+      await liveRequest("meta", { method: "PATCH", auth: true, body: JSON.stringify({ active: false, updatedAt: new Date().toISOString() }) });
+      const current = await liveFetch(liveEndpoint("current"));
+      if (current?.room === liveSync.room) await publishCurrentSession(false);
     } catch (error) {
       // La séance locale doit pouvoir être arrêtée même si le réseau est indisponible.
     }
@@ -3244,12 +3457,69 @@ async function copyStudentLiveLink() {
   setLiveStatus("connected", "Lien élève copié");
 }
 
+function joinLiveRoom(room) {
+  liveSync.room = room;
+  liveSync.enabled = true;
+  liveSync.signature = "";
+  liveSync.remotePosts = [];
+  setLiveStatus("connecting", "Connexion au direct");
+  connectLiveStream();
+  scheduleLivePoll(0);
+}
+
+function scheduleCurrentPoll(delay = liveSync.pollDelay) {
+  window.clearTimeout(liveSync.currentTimer);
+  liveSync.currentTimer = window.setTimeout(checkCurrentSession, delay);
+}
+
+async function checkCurrentSession() {
+  try {
+    const current = await liveFetch(liveEndpoint("current"));
+    if (current?.active && Number(current.expiresAt) > Date.now()) {
+      const room = normalizeLiveRoom(current.room);
+      if (room !== liveSync.room || !liveSync.enabled) joinLiveRoom(room);
+    } else if (!liveSync.enabled) {
+      setLiveStatus("waiting", "En attente de la séance");
+    }
+  } catch (error) {
+    if (!liveSync.enabled) setLiveStatus("error", "Direct indisponible");
+  } finally {
+    scheduleCurrentPoll();
+  }
+}
+
+function connectCurrentStream() {
+  if (liveSync.currentStream) liveSync.currentStream.close();
+  window.clearTimeout(liveSync.currentReconnectTimer);
+  try {
+    const stream = new EventSource(liveEndpoint("current"));
+    liveSync.currentStream = stream;
+    stream.addEventListener("put", checkCurrentSession);
+    stream.addEventListener("patch", checkCurrentSession);
+    stream.onerror = () => {
+      stream.close();
+      if (liveSync.currentStream === stream) liveSync.currentStream = null;
+      liveSync.currentReconnectTimer = window.setTimeout(connectCurrentStream, 3500);
+    };
+  } catch (error) {
+    scheduleCurrentPoll(1800);
+  }
+}
+
+function followCurrentSession() {
+  setLiveStatus("waiting", "En attente de la séance");
+  connectCurrentStream();
+  scheduleCurrentPoll(0);
+}
+
 function initializeLiveSync() {
   const params = new URLSearchParams(window.location.search);
+  const config = directConfig();
   if (isTeacherPage()) {
     try {
       const saved = JSON.parse(localStorage.getItem("veille-ili:live-config") || "{}");
-      liveSync.dbUrl = saved.dbUrl || "";
+      liveSync.dbUrl = saved.dbUrl || config.dbUrl;
+      liveSync.apiKey = saved.apiKey || config.apiKey;
       liveSync.expiresAt = Number(saved.expiresAt || 0);
       liveSync.room = liveSync.expiresAt > Date.now() ? (saved.room || "") : "";
       liveSync.enabled = Boolean(saved.active && liveSync.dbUrl && liveSync.room && liveSync.expiresAt > Date.now());
@@ -3263,6 +3533,13 @@ function initializeLiveSync() {
       liveSync.enabled = true;
     } catch (error) {
       liveSync.enabled = false;
+    }
+  } else if (config.dbUrl) {
+    try {
+      liveSync.dbUrl = normalizeLiveDbUrl(config.dbUrl);
+      followCurrentSession();
+    } catch (error) {
+      setLiveStatus("error", "Direct mal configuré");
     }
   }
   if (liveSync.enabled) {
@@ -3296,7 +3573,7 @@ function updateComposePreview(src = "") {
     return;
   }
   els.composePreview.hidden = false;
-  els.composePreview.innerHTML = `<img src="${src}" alt="Aperçu du visuel" />`;
+  els.composePreview.innerHTML = `<img src="${escapeHtml(src)}" alt="Aperçu du visuel" />`;
 }
 
 function openPostComposer() {
@@ -3437,11 +3714,29 @@ async function generateComposeVisual() {
   updateComposePreview(state.composeVisual);
 }
 
+// Les règles Firebase limitent media.dataUrl à 1 000 000 caractères.
+async function downscaleComposeImage(src, maxSide = 1200) {
+  const image = new Image();
+  image.src = src;
+  await image.decode();
+  const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(image.width * scale));
+  canvas.height = Math.max(1, Math.round(image.height * scale));
+  canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", 0.86);
+}
+
 function importComposeImage(file) {
   if (!file) return;
   const reader = new FileReader();
-  reader.addEventListener("load", () => {
-    state.composeVisual = String(reader.result || "");
+  reader.addEventListener("load", async () => {
+    const original = String(reader.result || "");
+    try {
+      state.composeVisual = await downscaleComposeImage(original);
+    } catch (error) {
+      state.composeVisual = original;
+    }
     els.composeMediaSelect.value = "";
     updateComposePreview(state.composeVisual);
   });
