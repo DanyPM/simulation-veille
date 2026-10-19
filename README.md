@@ -47,19 +47,21 @@ La simulation permet notamment de travailler :
 
 Après la configuration unique décrite dans `CONFIGURATION-DIRECT.txt`, l'enseignant peut lancer une séance, partager son lien élève puis publier autant de messages qu'il le souhaite depuis n'importe quel compte du scénario. Les nouvelles publications sont transmises aux appareils connectés par un flux temps réel, sans modification des fichiers et sans redéploiement GitHub Pages.
 
-## Données élèves et mode admin
+## Mot de passe, données élèves et mode admin
 
-La page élève ne charge ni le moteur de génération (`engine.js`) ni les scénarios complets : elle lit des fils précalculés dans `data/eleve`, qui ne contiennent que ce que l'interface affiche (pas de corrigé, pas de classification des posts ou des comptes).
+La page enseignant est protégée par un mot de passe : le moteur de génération et les scénarios complets sont publiés chiffrés dans `data/enseignant` (AES-256-GCM, clé dérivée du mot de passe) et ne sont déchiffrés dans le navigateur qu'après sa saisie.
 
-Le bouton **Mode admin** de la page élève affiche, après saisie du mot de passe enseignant, la classification de chaque post (suspect ou non, motif) et de chaque compte, ainsi que les indices du corrigé. Ces informations sont stockées chiffrées dans `data/corrige` (AES-256-GCM, clé dérivée du mot de passe) : sans le mot de passe, elles restent illisibles, même en inspectant la page. Sur la page enseignant, le même bouton s'active sans mot de passe.
+La page élève ne charge que des fils précalculés (`data/eleve`), qui ne contiennent que ce que l'interface affiche : ni corrigé, ni classification des posts ou des comptes. Son bouton **Mode admin** affiche, après saisie du même mot de passe, la classification de chaque post (suspect ou non, motif) et de chaque compte, ainsi que les indices du corrigé, stockés chiffrés dans `data/corrige`. Sur la page enseignant déverrouillée, ce bouton s'active sans nouvelle saisie.
 
-Après toute modification d'un scénario (`data/scenarios`) ou du moteur (`engine.js`), régénérer ces fichiers avec Node.js en choisissant le mot de passe :
+Les sources en clair (`engine.js` et un fichier par scénario) se trouvent dans le dossier `prive/`, ignoré par git : elles ne doivent jamais être déposées sur GitHub. Après toute modification de ces sources, régénérer les fichiers publiés avec Node.js :
 
 ```
-VEILLE_ILI_MDP="mot de passe" node tools/build-eleve.js
+VEILLE_ILI_MDP="mot de passe" node tools/build.js
 ```
 
-`node tools/build-eleve.js --check` (avec la même variable) vérifie que les fichiers déposés sont à jour.
+- `node tools/build.js --check` vérifie que les fichiers publiés sont à jour.
+- `node tools/build.js --extract` recrée `prive/` à partir de `data/enseignant` (sauvegarde chiffrée des sources), par exemple sur un autre ordinateur.
+- Changer de mot de passe : lancer `--extract` avec l'ancien mot de passe, puis `node tools/build.js` avec le nouveau.
 
 ## Mise en ligne avec GitHub Pages
 
@@ -68,11 +70,10 @@ Les fichiers doivent être déposés **à la racine** du dépôt GitHub, et non 
 - `index.html`
 - `eleve.html`
 - `app.js`
-- `engine.js`
 - `styles.css`
 - `.nojekyll`
 - le dossier `assets`
-- le dossier `data` (un fichier par scénario, chargé à la demande, ainsi que les fils élèves `data/eleve` et les corrigés chiffrés `data/corrige`)
+- le dossier `data` (index des scénarios, fichiers chiffrés de la page enseignant `data/enseignant`, fils élèves `data/eleve`, corrigés chiffrés `data/corrige`)
 
 Dans GitHub, ouvrir **Settings**, puis **Pages**. Choisir **Deploy from a branch**, sélectionner la branche `main` et le dossier `/ (root)`, puis enregistrer. Le déploiement peut demander quelques minutes.
 

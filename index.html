@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>VEILLE-ILI - veille informationnelle</title>
-    <link rel="stylesheet" href="./styles.css?v=20261019b" />
+    <link rel="stylesheet" href="./styles.css?v=20261019c" />
   </head>
   <body data-mode="teacher">
     <header class="topbar">
@@ -164,10 +164,23 @@
       </form>
     </dialog>
 
+    <dialog id="unlockDialog" class="dialog admin-dialog">
+      <form id="unlockForm">
+        <h2>Page enseignant</h2>
+        <p class="helper">Saisir le mot de passe enseignant pour ouvrir la page.</p>
+        <label>Mot de passe
+          <input id="unlockPassword" type="password" autocomplete="current-password" required />
+        </label>
+        <p id="unlockError" class="admin-error" role="alert" hidden></p>
+        <menu>
+          <a class="text-button" href="./eleve.html">Page élève</a>
+          <button type="submit" id="unlockSubmit" class="primary-button">Ouvrir</button>
+        </menu>
+      </form>
+    </dialog>
     <input id="fileInput" type="file" accept="application/json,.json" hidden />
-    <script src="./data/assets.js?v=20261019b"></script>
-    <script src="./data/scenarios/index.js?v=20261019b"></script>
-    <script src="./engine.js?v=20261019b"></script>
-    <script src="./app.js?v=20261019b"></script>
+    <script src="./data/assets.js?v=20261019c"></script>
+    <script src="./data/scenarios/index.js?v=20261019c"></script>
+    <script src="./app.js?v=20261019c"></script>
   </body>
 </html>

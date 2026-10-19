@@ -70,7 +70,12 @@ const els = {
   adminError: document.querySelector("#adminError"),
   adminUnlock: document.querySelector("#adminUnlock"),
   adminPanel: document.querySelector("#adminPanel"),
-  adminClues: document.querySelector("#adminClues")
+  adminClues: document.querySelector("#adminClues"),
+  unlockDialog: document.querySelector("#unlockDialog"),
+  unlockForm: document.querySelector("#unlockForm"),
+  unlockPassword: document.querySelector("#unlockPassword"),
+  unlockError: document.querySelector("#unlockError"),
+  unlockSubmit: document.querySelector("#unlockSubmit")
 };
 
 function hashSeed(input) {
@@ -1946,36 +1951,40 @@ function renderAnswerKey() {
   `;
 }
 
-const scenarioScriptLoads = new Map();
+const registryScriptLoads = new Map();
 
-// Student pages load the redacted feeds built by tools/build-eleve.js, never the full scenarios.
-const scenarioSource = document.body.dataset.mode === "student"
-  ? { folder: "eleve", registry: "veilleIliStudentScenarios" }
-  : { folder: "scenarios", registry: "veilleIliScenarios" };
-
-function loadScenarioScript(id) {
-  if (!scenarioScriptLoads.has(id)) {
-    scenarioScriptLoads.set(id, new Promise((resolve, reject) => {
+function loadRegistryScript(file, registry, name) {
+  if (!registryScriptLoads.has(file)) {
+    registryScriptLoads.set(file, new Promise((resolve, reject) => {
       const script = document.createElement("script");
-      script.src = `./data/${scenarioSource.folder}/${encodeURIComponent(id)}.js?v=${encodeURIComponent(assetVersion)}`;
+      script.src = `./${file}?v=${encodeURIComponent(assetVersion)}`;
       script.addEventListener("load", () => {
-        const scenario = window[scenarioSource.registry]?.[id];
-        if (scenario) resolve(scenario);
-        else reject(new Error(`Scénario introuvable : ${id}`));
+        const value = window[registry]?.[name];
+        if (value) resolve(value);
+        else reject(new Error(`Contenu introuvable : ${file}`));
       });
       script.addEventListener("error", () => {
-        scenarioScriptLoads.delete(id);
-        reject(new Error(`Chargement du scénario impossible : ${id}`));
+        registryScriptLoads.delete(file);
+        reject(new Error(`Chargement impossible : ${file}`));
       });
       document.head.append(script);
     }));
   }
-  return scenarioScriptLoads.get(id);
+  return registryScriptLoads.get(file);
+}
+
+async function fetchScenario(id) {
+  // Student pages load the redacted feeds built by tools/build.js, never the full scenarios.
+  if (document.body.dataset.mode === "student") {
+    return loadRegistryScript(`data/eleve/${encodeURIComponent(id)}.js`, "veilleIliStudentScenarios", id);
+  }
+  const payload = await loadRegistryScript(`data/enseignant/${encodeURIComponent(id)}.js`, "veilleIliTeacherBundle", id);
+  return JSON.parse(await decryptPayload(payload, state.teacherPassword));
 }
 
 async function scenarioData(entry) {
   if (Array.isArray(entry.actors)) return entry;
-  const scenario = await loadScenarioScript(entry.id);
+  const scenario = await fetchScenario(entry.id);
   const index = state.scenarios.findIndex((item) => item.id === entry.id);
   if (index >= 0 && !Array.isArray(state.scenarios[index].actors)) state.scenarios[index] = scenario;
   return scenario;
@@ -3538,49 +3547,40 @@ const adminStanceLabels = {
 };
 const adminTrustLabels = { high: "fiabilité élevée", medium: "fiabilité moyenne", low: "fiabilité faible" };
 const adminPasswordKey = "veille-ili:admin-password";
-const answerSheetLoads = new Map();
-
-function loadAnswerSheetScript(id) {
-  if (!answerSheetLoads.has(id)) {
-    answerSheetLoads.set(id, new Promise((resolve, reject) => {
-      const script = document.createElement("script");
-      script.src = `./data/corrige/${encodeURIComponent(id)}.js?v=${encodeURIComponent(assetVersion)}`;
-      script.addEventListener("load", () => {
-        const sheet = window.veilleIliAnswerSheets?.[id];
-        if (sheet) resolve(sheet);
-        else reject(new Error(`Corrigé introuvable : ${id}`));
-      });
-      script.addEventListener("error", () => {
-        answerSheetLoads.delete(id);
-        reject(new Error(`Chargement du corrigé impossible : ${id}`));
-      });
-      document.head.append(script);
-    }));
-  }
-  return answerSheetLoads.get(id);
-}
+const decryptionKeys = new Map();
 
 function base64Bytes(value) {
   return Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
 }
 
-// Mirrors encryptSheet in tools/build-eleve.js.
-async function decryptAnswerSheet(payload, password) {
+// Mirrors encrypt in tools/build.js.
+async function decryptPayload(payload, password) {
   const subtle = window.crypto?.subtle;
   if (!subtle) throw new Error("Déchiffrement indisponible dans ce navigateur.");
-  const baseKey = await subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveKey"]);
-  const key = await subtle.deriveKey(
-    { name: "PBKDF2", salt: base64Bytes(payload.salt), iterations: payload.iterations, hash: "SHA-256" },
-    baseKey,
-    { name: "AES-GCM", length: 256 },
-    false,
-    ["decrypt"]
-  );
+  const cacheKey = `${payload.salt}:${payload.iterations}:${password}`;
+  if (!decryptionKeys.has(cacheKey)) {
+    decryptionKeys.set(cacheKey, subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveKey"])
+      .then((baseKey) => subtle.deriveKey(
+        { name: "PBKDF2", salt: base64Bytes(payload.salt), iterations: payload.iterations, hash: "SHA-256" },
+        baseKey,
+        { name: "AES-GCM", length: 256 },
+        false,
+        ["decrypt"]
+      )));
+  }
   try {
-    const plaintext = await subtle.decrypt({ name: "AES-GCM", iv: base64Bytes(payload.iv) }, key, base64Bytes(payload.data));
-    return JSON.parse(new TextDecoder().decode(plaintext));
+    const plaintext = await subtle.decrypt({ name: "AES-GCM", iv: base64Bytes(payload.iv) }, await decryptionKeys.get(cacheKey), base64Bytes(payload.data));
+    return new TextDecoder().decode(plaintext);
   } catch (error) {
     throw new Error("Mot de passe incorrect.");
+  }
+}
+
+function rememberAdminPassword(password) {
+  try {
+    sessionStorage.setItem(adminPasswordKey, password);
+  } catch (error) {
+    // Sans stockage de session, le mot de passe sera redemandé au prochain chargement.
   }
 }
 
@@ -3595,14 +3595,42 @@ function storedAdminPassword() {
 async function unlockAnswerSheet(password) {
   const scenarioId = state.scenario?.id;
   if (!scenarioId) return;
-  const sheet = await decryptAnswerSheet(await loadAnswerSheetScript(scenarioId), password);
+  const payload = await loadRegistryScript(`data/corrige/${encodeURIComponent(scenarioId)}.js`, "veilleIliAnswerSheets", scenarioId);
+  const sheet = JSON.parse(await decryptPayload(payload, password));
   if (state.scenario?.id !== scenarioId) return;
   state.answerSheet = sheet;
-  try {
-    sessionStorage.setItem(adminPasswordKey, password);
-  } catch (error) {
-    // Sans stockage de session, le mot de passe sera redemandé au prochain changement de scénario.
-  }
+  rememberAdminPassword(password);
+}
+
+async function unlockTeacherPage(password) {
+  const payload = await loadRegistryScript("data/enseignant/engine.js", "veilleIliTeacherBundle", "engine");
+  const engine = document.createElement("script");
+  engine.textContent = await decryptPayload(payload, password);
+  document.head.append(engine);
+  state.teacherPassword = password;
+  rememberAdminPassword(password);
+}
+
+function ensureTeacherUnlocked() {
+  return unlockTeacherPage(storedAdminPassword()).catch(() => new Promise((resolve) => {
+    els.unlockForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      els.unlockSubmit.disabled = true;
+      try {
+        await unlockTeacherPage(els.unlockPassword.value);
+        els.unlockDialog.close();
+        resolve();
+      } catch (error) {
+        els.unlockError.textContent = error.message;
+        els.unlockError.hidden = false;
+      } finally {
+        els.unlockSubmit.disabled = false;
+      }
+    });
+    els.unlockDialog.addEventListener("cancel", (event) => event.preventDefault());
+    els.unlockDialog.showModal();
+    els.unlockPassword.focus();
+  }));
 }
 
 function postVerdict(post) {
@@ -3676,7 +3704,7 @@ function forgetAdminPassword() {
 function toggleAdminMode() {
   if (state.adminMode) {
     state.answerSheet = null;
-    forgetAdminPassword();
+    if (!isTeacherPage()) forgetAdminPassword();
     setAdminMode(false);
     return;
   }
@@ -3786,7 +3814,16 @@ renderScenarioOptions();
 bindEvents();
 // VEILLE-ILI BOOTSTRAP START
 const requestedScenario = new URLSearchParams(window.location.search).get("scenario");
-loadScenario(state.scenarios.some((item) => item.id === requestedScenario) ? requestedScenario : state.scenarios[0].id)
-  .catch((error) => console.error(error))
-  .finally(initializeLiveSync);
+
+async function startPage() {
+  if (isTeacherPage()) await ensureTeacherUnlocked();
+  await loadScenario(state.scenarios.some((item) => item.id === requestedScenario) ? requestedScenario : state.scenarios[0].id);
+}
+
+// tools/build.js evaluates this file with data-mode="build" to reuse its helpers without starting the page.
+if (document.body.dataset.mode !== "build") {
+  startPage()
+    .catch((error) => console.error(error))
+    .finally(initializeLiveSync);
+}
 // VEILLE-ILI BOOTSTRAP END
