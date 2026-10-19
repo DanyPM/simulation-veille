@@ -2029,3 +2029,13 @@ dialog {
   .post { padding: 14px 12px; }
   .post-content { font-size: 15.5px; }
 }
+
+.admin-flag { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 6px 0 4px; padding: 6px 10px; border-left: 3px solid var(--muted); border-radius: 6px; background: var(--soft); font-size: 13px; }
+.admin-flag[data-kind="suspect"] { border-left-color: var(--danger); background: #fdecea; }
+.admin-flag[data-kind="suspect"] strong { color: var(--danger); }
+.admin-flag[data-kind="clear"] { border-left-color: var(--accent); background: var(--soft-2); }
+.admin-flag[data-kind="clear"] strong { color: var(--accent-strong); }
+.admin-flag small { color: var(--muted); }
+.admin-clues { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 13px; }
+.admin-error { color: var(--danger); font-weight: 600; }
+#adminToggle[aria-pressed="true"] { color: var(--danger); border-color: var(--danger); }

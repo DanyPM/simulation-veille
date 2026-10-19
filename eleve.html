@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>VEILLE-ILI - veille informationnelle</title>
-    <link rel="stylesheet" href="./styles.css?v=20261019a" />
+    <link rel="stylesheet" href="./styles.css?v=20261019b" />
   </head>
   <body data-mode="student">
     <header class="topbar">
@@ -22,6 +22,7 @@
           <span>Scénario</span>
           <select id="scenarioSelect"></select>
         </label>
+        <button id="adminToggle" class="text-button" aria-pressed="false">Mode admin</button>
 
       </div>
     </header>
@@ -37,6 +38,7 @@
           <p id="scenarioBrief" class="brief"></p>
           <div class="scenario-meta" id="scenarioMeta"></div>
         </section>
+        <section id="adminPanel" class="panel admin-panel" hidden><h2>Corrigé</h2><ul id="adminClues" class="admin-clues"></ul></section>
         <section class="panel"><h2>Tendances</h2><div id="trendList" class="trend-list"></div></section>
       </aside>
       <section class="feed-shell" aria-label="Fil de publications">
@@ -78,10 +80,25 @@
       </form>
     </dialog>
 
+    <dialog id="adminDialog" class="dialog admin-dialog">
+      <form method="dialog" id="adminForm">
+        <h2>Mode admin</h2>
+        <p class="helper">Mot de passe enseignant pour afficher les classifications des posts et des comptes.</p>
+        <label>Mot de passe
+          <input id="adminPassword" type="password" autocomplete="current-password" required />
+        </label>
+        <p id="adminError" class="admin-error" role="alert" hidden></p>
+        <menu>
+          <button value="cancel" formnovalidate class="text-button">Annuler</button>
+          <button type="submit" id="adminUnlock" class="primary-button">Déverrouiller</button>
+        </menu>
+      </form>
+    </dialog>
+
 <div id="answerKey" hidden></div>
     <input id="fileInput" type="file" accept="application/json,.json" hidden />
-    <script src="./data/assets.js?v=20261019a"></script>
-    <script src="./data/scenarios/index.js?v=20261019a"></script>
-    <script src="./app.js?v=20261019a"></script>
+    <script src="./data/assets.js?v=20261019b"></script>
+    <script src="./data/scenarios/index.js?v=20261019b"></script>
+    <script src="./app.js?v=20261019b"></script>
   </body>
 </html>

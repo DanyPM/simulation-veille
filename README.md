@@ -47,6 +47,20 @@ La simulation permet notamment de travailler :
 
 Après la configuration unique décrite dans `CONFIGURATION-DIRECT.txt`, l'enseignant peut lancer une séance, partager son lien élève puis publier autant de messages qu'il le souhaite depuis n'importe quel compte du scénario. Les nouvelles publications sont transmises aux appareils connectés par un flux temps réel, sans modification des fichiers et sans redéploiement GitHub Pages.
 
+## Données élèves et mode admin
+
+La page élève ne charge ni le moteur de génération (`engine.js`) ni les scénarios complets : elle lit des fils précalculés dans `data/eleve`, qui ne contiennent que ce que l'interface affiche (pas de corrigé, pas de classification des posts ou des comptes).
+
+Le bouton **Mode admin** de la page élève affiche, après saisie du mot de passe enseignant, la classification de chaque post (suspect ou non, motif) et de chaque compte, ainsi que les indices du corrigé. Ces informations sont stockées chiffrées dans `data/corrige` (AES-256-GCM, clé dérivée du mot de passe) : sans le mot de passe, elles restent illisibles, même en inspectant la page. Sur la page enseignant, le même bouton s'active sans mot de passe.
+
+Après toute modification d'un scénario (`data/scenarios`) ou du moteur (`engine.js`), régénérer ces fichiers avec Node.js en choisissant le mot de passe :
+
+```
+VEILLE_ILI_MDP="mot de passe" node tools/build-eleve.js
+```
+
+`node tools/build-eleve.js --check` (avec la même variable) vérifie que les fichiers déposés sont à jour.
+
 ## Mise en ligne avec GitHub Pages
 
 Les fichiers doivent être déposés **à la racine** du dépôt GitHub, et non dans un dossier supplémentaire. Le dépôt doit notamment contenir :
@@ -54,10 +68,11 @@ Les fichiers doivent être déposés **à la racine** du dépôt GitHub, et non 
 - `index.html`
 - `eleve.html`
 - `app.js`
+- `engine.js`
 - `styles.css`
 - `.nojekyll`
 - le dossier `assets`
-- le dossier `data` (un fichier par scénario, chargé à la demande)
+- le dossier `data` (un fichier par scénario, chargé à la demande, ainsi que les fils élèves `data/eleve` et les corrigés chiffrés `data/corrige`)
 
 Dans GitHub, ouvrir **Settings**, puis **Pages**. Choisir **Deploy from a branch**, sélectionner la branche `main` et le dossier `/ (root)`, puis enregistrer. Le déploiement peut demander quelques minutes.
 

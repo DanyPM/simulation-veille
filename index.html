@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>VEILLE-ILI - veille informationnelle</title>
-    <link rel="stylesheet" href="./styles.css?v=20261019a" />
+    <link rel="stylesheet" href="./styles.css?v=20261019b" />
   </head>
   <body data-mode="teacher">
     <header class="topbar">
@@ -28,6 +28,7 @@
         <button id="exportBtn" class="icon-button" title="Exporter le scénario actif" aria-label="Exporter le scénario actif">↓</button>
         <button id="liveSessionBtn" class="text-button live-session-button"><span class="status-dot" aria-hidden="true"></span>Séance en direct</button>
         <button id="composePostBtn" class="primary-button">Créer un post</button>
+        <button id="adminToggle" class="text-button" aria-pressed="false">Mode admin</button>
         <button id="teacherToggle" class="text-button">Mode enseignant</button>
 
       </div>
@@ -44,6 +45,7 @@
           <p id="scenarioBrief" class="brief"></p>
           <div class="scenario-meta" id="scenarioMeta"></div>
         </section>
+        <section id="adminPanel" class="panel admin-panel" hidden><h2>Corrigé</h2><ul id="adminClues" class="admin-clues"></ul></section>
         <section class="panel"><h2>Tendances</h2><div id="trendList" class="trend-list"></div></section>
       </aside>
       <section class="feed-shell" aria-label="Fil de publications">
@@ -163,8 +165,9 @@
     </dialog>
 
     <input id="fileInput" type="file" accept="application/json,.json" hidden />
-    <script src="./data/assets.js?v=20261019a"></script>
-    <script src="./data/scenarios/index.js?v=20261019a"></script>
-    <script src="./app.js?v=20261019a"></script>
+    <script src="./data/assets.js?v=20261019b"></script>
+    <script src="./data/scenarios/index.js?v=20261019b"></script>
+    <script src="./engine.js?v=20261019b"></script>
+    <script src="./app.js?v=20261019b"></script>
   </body>
 </html>
