@@ -45,7 +45,7 @@ La simulation permet notamment de travailler :
 
 ## Séance en direct
 
-Après la configuration unique décrite dans `CONFIGURATION-DIRECT.txt`, l'enseignant peut lancer une séance, partager son lien élève puis publier autant de messages qu'il le souhaite depuis n'importe quel compte du scénario. Les nouvelles publications sont transmises aux appareils connectés par un flux temps réel, sans modification des fichiers et sans redéploiement GitHub Pages.
+Après la configuration unique décrite dans `CONFIGURATION-DIRECT.txt` (projet Firebase, règles `database.rules.json`, fichier `config-direct.js`), l'enseignant peut lancer une séance puis publier autant de messages qu'il le souhaite depuis n'importe quel compte du scénario. La page élève simple rejoint automatiquement la séance en cours. Les nouvelles publications sont transmises aux appareils connectés par un flux temps réel, sans modification des fichiers et sans redéploiement GitHub Pages. Seuls les navigateurs enseignants déclarés dans la base peuvent publier.
 
 ## Mise en ligne avec GitHub Pages
 
@@ -55,6 +55,7 @@ Les fichiers doivent être déposés **à la racine** du dépôt GitHub, et non 
 - `eleve.html`
 - `app.js`
 - `styles.css`
+- `config-direct.js`
 - `.nojekyll`
 - le dossier `assets`
 

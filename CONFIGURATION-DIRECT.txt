@@ -4,47 +4,49 @@ Le direct permet a l'enseignant de publier autant de messages qu'il le souhaite.
 Chaque publication apparait immediatement sur les appareils des eleves, sans
 actualisation manuelle et sans nouveau depot GitHub.
 
+Seul un enseignant declare dans la base peut publier. Les eleves lisent seulement.
+
 PREPARATION FIREBASE - A FAIRE UNE SEULE FOIS
 
 1. Ouvrir https://console.firebase.google.com/ et creer un projet dedie a VEILLE-ILI.
-2. Dans Build, ouvrir Realtime Database puis choisir Creer une base de donnees.
-3. Choisir de preference une region europeenne.
-4. Dans l'onglet Regles de Realtime Database, remplacer les regles par celles-ci :
-
-{
-  "rules": {
-    "rooms": {
-      "$room": {
-        ".read": "data.child('meta').child('expiresAt').val() > now",
-        ".write": "(!data.exists() && newData.child('meta').child('expiresAt').val() > now) || data.child('meta').child('expiresAt').val() > now",
-        "meta": {
-          ".validate": "newData.hasChildren(['active', 'scenarioId', 'updatedAt', 'expiresAt'])"
-        },
-        "posts": {
-          "$post": {
-            ".validate": "newData.val() == null || (newData.hasChildren(['id', 'scenarioId', 'actor', 'content', 'liveDate']) && newData.child('content').isString() && newData.child('content').val().length <= 520)"
-          }
-        },
-        "$other": { ".validate": false }
-      }
-    }
-  }
-}
-
-5. Cliquer sur Publier.
-6. Copier l'adresse affichee en haut de l'onglet Donnees. Elle se termine par
+2. Dans Build, ouvrir Authentication, cliquer sur Commencer, puis dans l'onglet
+   Mode de connexion activer le fournisseur Anonyme.
+3. Dans Build, ouvrir Realtime Database puis choisir Creer une base de donnees.
+   Choisir de preference une region europeenne.
+4. Dans l'onglet Regles de Realtime Database, remplacer les regles par le contenu
+   du fichier database.rules.json fourni avec VEILLE-ILI, puis cliquer sur Publier.
+5. Copier l'adresse affichee en haut de l'onglet Donnees. Elle se termine par
    firebasedatabase.app ou firebaseio.com.
+6. Dans Parametres du projet (roue dentee), onglet General, ajouter une application
+   Web si aucune n'existe, puis copier la Cle API Web.
+7. Ouvrir le fichier config-direct.js, coller l'adresse dans dbUrl et la cle dans
+   apiKey, puis deposer ce fichier dans le depot GitHub avec les autres.
+   Ces deux valeurs ne sont pas secretes : l'ecriture est protegee par les regles.
+
+DECLARER L'ORDINATEUR ENSEIGNANT - UNE FOIS PAR NAVIGATEUR
+
+1. Ouvrir la page enseignant VEILLE-ILI puis cliquer sur Seance en direct.
+2. Copier le champ Identifiant enseignant.
+3. Dans la console Firebase, Realtime Database, onglet Donnees, ajouter a la racine
+   un noeud teachers, puis dans ce noeud une cle egale a l'identifiant copie avec
+   la valeur true (type booleen).
+4. Recommencer pour chaque navigateur ou ordinateur enseignant. Si les donnees du
+   site sont effacees dans le navigateur, un nouvel identifiant est cree et doit
+   etre declare a son tour.
 
 UTILISATION EN CLASSE
 
 1. Ouvrir la page enseignant VEILLE-ILI.
-2. Cliquer sur Seance en direct.
-3. Coller l'adresse Firebase. Elle sera memorisee sur cet ordinateur.
-4. Cliquer sur Demarrer la seance.
-5. Copier le lien eleve et le transmettre a la classe.
-6. Cliquer sur Creer un post, choisir le compte, rediger puis publier.
+2. Cliquer sur Seance en direct. L'adresse et la cle sont reprises de config-direct.js.
+3. Cliquer sur Demarrer la seance.
+4. Transmettre aux eleves le lien simple de la page eleve (eleve.html) : elle rejoint
+   automatiquement la seance annoncee. Le lien eleve affiche dans la fenetre reste
+   utilisable, notamment si plusieurs enseignants animent une seance en meme temps.
+5. Cliquer sur Creer un post, choisir le compte, rediger puis publier.
 
 La diffusion utilise le flux temps reel Firebase. Le message apparait dans les fils
 eleves des sa reception, sans recharger toute la page. Le code de seance expire au
-bout de douze heures. La base doit rester reservee a des contenus fictifs et ne doit
-contenir aucune donnee personnelle ou sensible.
+bout de douze heures. Une seule seance est annoncee a la fois sur la page eleve
+simple : elle appartient a l'enseignant qui l'a demarree jusqu'a son arret ou son
+expiration. La base doit rester reservee a des contenus fictifs et ne doit contenir
+aucune donnee personnelle ou sensible.
