@@ -1547,6 +1547,16 @@ body {
   width: 100%;
   object-fit: cover;
 }
+.metadata-row[data-clue] strong {
+  color: #b42318;
+}
+
+.metadata-status {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
 .metadata-box {
   border-radius: 12px;
   margin-top: 10px;

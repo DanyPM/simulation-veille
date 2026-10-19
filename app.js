@@ -1656,48 +1656,121 @@ function renderEvidenceSvg(media, palette) {
   }
   return `<svg role="img" aria-label="${label}" viewBox="0 0 220 140" xmlns="http://www.w3.org/2000/svg">${common}${body}<text x="18" y="126" fill="rgba(23,33,43,.72)" font-size="10" font-family="Arial">SIMULATION - SOURCE A VERIFIER</text></svg>`;
 }
+const imageMetadataLoads = new Map();
+
+// Minimal EXIF reader for the evidence JPEGs: APP1 "Exif\0\0" segment, TIFF header, IFD0 and the GPS IFD.
+function readExif(buffer) {
+  const view = new DataView(buffer);
+  if (view.byteLength < 4 || view.getUint16(0) !== 0xffd8) return null;
+  let offset = 2;
+  while (offset + 4 <= view.byteLength) {
+    const marker = view.getUint16(offset);
+    const size = view.getUint16(offset + 2);
+    if (marker === 0xffe1 && view.getUint32(offset + 4) === 0x45786966) return readTiff(view, offset + 10);
+    if (marker === 0xffda || (marker & 0xff00) !== 0xff00) return null;
+    offset += 2 + size;
+  }
+  return null;
+}
+
+function readTiff(view, start) {
+  const little = view.getUint16(start) === 0x4949;
+  const u16 = (at) => view.getUint16(start + at, little);
+  const u32 = (at) => view.getUint32(start + at, little);
+  // TIFF field types: 1 BYTE, 2 ASCII, 3 SHORT, 4 LONG, 5 RATIONAL; values of 4 bytes or less are stored inline.
+  const typeSizes = { 1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 7: 1 };
+  const readIfd = (at) => {
+    const tags = {};
+    const count = u16(at);
+    for (let index = 0; index < count; index += 1) {
+      const entry = at + 2 + index * 12;
+      const type = u16(entry + 2);
+      const length = u32(entry + 4);
+      const size = (typeSizes[type] || 1) * length;
+      const valueAt = size > 4 ? u32(entry + 8) : entry + 8;
+      if (start + valueAt + size > view.byteLength) continue;
+      const bytes = new Uint8Array(view.buffer, view.byteOffset + start + valueAt, size);
+      if (type === 2) tags[u16(entry)] = new TextDecoder().decode(bytes).replace(/\0+$/, "");
+      else if (type === 5) tags[u16(entry)] = Array.from({ length }, (_, item) => u32(valueAt + item * 8) / (u32(valueAt + item * 8 + 4) || 1));
+      else if (type === 4) tags[u16(entry)] = u32(valueAt);
+      else tags[u16(entry)] = bytes;
+    }
+    return tags;
+  };
+  const ifd0 = readIfd(u32(4));
+  return { ifd0, gps: ifd0[0x8825] ? readIfd(ifd0[0x8825]) : {} };
+}
+
+function windowsText(bytes) {
+  return bytes ? new TextDecoder("utf-16le").decode(bytes).replace(/\0+$/, "") : "";
+}
+
+function gpsDecimal(parts, ref) {
+  if (!Array.isArray(parts) || parts.length < 3) return null;
+  const value = parts[0] + parts[1] / 60 + parts[2] / 3600;
+  return (ref === "S" || ref === "W" ? -value : value).toFixed(4);
+}
+
+function imageMetadataRows(exif) {
+  if (!exif) return [];
+  const { ifd0, gps } = exif;
+  // ImageDescription holds "SimuVeille fictional evidence | key=value | ...", XPSubject holds "origin | original file | published file".
+  const description = Object.fromEntries(String(ifd0[0x010e] || "").split(" | ").map((part) => part.split("=")).filter((pair) => pair.length === 2));
+  const subject = windowsText(ifd0[0x9c9f]).split(" | ");
+  const latitude = gpsDecimal(gps[2], gps[1]);
+  const longitude = gpsDecimal(gps[4], gps[3]);
+  return [
+    { label: "Fichier d'origine", value: subject[1] },
+    { label: "Origine déclarée", value: subject[0] },
+    { label: "Appareil", value: [ifd0[0x010f], ifd0[0x0110]].filter(Boolean).join(" · ") },
+    { label: "Auteur", value: ifd0[0x013b] },
+    { label: "Date", value: ifd0[0x0132] },
+    { label: "GPS", value: latitude && longitude ? `${latitude}, ${longitude}` : "" },
+    { label: "Locale", value: description.locale, clue: description.locale && !description.locale.startsWith("fr_") },
+    { label: "Fuseau", value: description.tz, clue: description.tz && description.tz !== "Europe/Paris" },
+    { label: "Chaîne de diffusion", value: description.chain },
+    { label: "Logiciel", value: ifd0[0x0131] }
+  ].filter((row) => row.value);
+}
+
+function loadImageMetadata(src) {
+  if (!imageMetadataLoads.has(src)) {
+    imageMetadataLoads.set(src, fetch(src)
+      .then((response) => (response.ok ? response.arrayBuffer() : null))
+      .then((buffer) => imageMetadataRows(buffer && readExif(buffer)))
+      .catch(() => []));
+  }
+  return imageMetadataLoads.get(src);
+}
+
 function renderMediaMetadata(media, post) {
-  const rows = media.metadata || simulatedMetadata(media, post);
-  if (!rows.length) return "";
+  if (!state.adminMode || !media) return "";
+  const src = media.dataUrl || evidenceAssets[media.asset || defaultEvidenceAsset(media, post)];
+  if (!src) return "";
   return `
-    <div class="metadata-box">
+    <div class="metadata-box" data-metadata-src="${escapeHtml(src)}">
       <div class="metadata-title">
-        <strong>Métadonnées simulées</strong>
-        <span>indices EXIF</span>
+        <strong>Métadonnées de l'image</strong>
+        <span>EXIF</span>
       </div>
-      ${rows.map((row) => `
-        <div class="metadata-row">
-          <span>${escapeHtml(row.label)}</span>
-          <strong>${escapeHtml(row.value)}</strong>
-        </div>
-      `).join("")}
+      <p class="metadata-status">Lecture en cours…</p>
     </div>
   `;
 }
 
-function simulatedMetadata(media, post) {
-  const scenarioId = state.scenario?.id || "";
-  const seed = hashSeed(`${scenarioId}:${post?.id || media.title}:${media.kind}`);
-  const suspect = Boolean(post?.suspect || post?.actor?.trust === "low");
-  const profile = state.scenario?.traceProfile || ["ru", "az", "unknown", "fr"];
-  const trace = media.trace || (suspect ? profile[seed % profile.length] : "fr");
-  const data = {
-    ru: { file: "пересылка_0742.jpg", locale: "ru_RU", tz: "UTC+3", gps: "55.7558, 37.6173", lang: "russe", operator: "Mikhail Orlov", chain: "export Telegram compressé" },
-    az: { file: "subut_export_041.jpg", locale: "az_AZ", tz: "UTC+4", gps: "40.4093, 49.8671", lang: "azéri", operator: "Rashad Mammadov", chain: "copie depuis canal relais" },
-    unknown: { file: `forwarded_${media.kind || "media"}_${String(seed).slice(0, 5)}.jpg`, locale: "inconnue", tz: "supprimé", gps: "41.0082, 28.9784", lang: "indéterminée", operator: "compte relais", chain: "capture recadrée" },
-    fr: { file: `${media.kind || "media"}_${String(seed).slice(0, 5)}.jpg`, locale: "fr_FR", tz: "Europe/Paris", gps: "48.8566, 2.3522", lang: "français", operator: "source identifiée", chain: "source citée" }
-  }[trace] || {};
-
-  return [
-    { label: "Fichier", value: data.file },
-    { label: "Langue appareil", value: data.lang },
-    { label: "Locale", value: data.locale },
-    { label: "Fuseau", value: data.tz },
-    { label: "GPS EXIF", value: data.gps },
-    { label: "Nom opérateur", value: data.operator },
-    { label: "Chaîne", value: data.chain },
-    { label: "Cohérence", value: suspect ? "indice fort à recouper" : "éléments recoupables" }
-  ];
+async function fillMediaMetadata(root) {
+  for (const box of root.querySelectorAll(".metadata-box[data-metadata-src]")) {
+    const src = box.dataset.metadataSrc;
+    box.removeAttribute("data-metadata-src");
+    const rows = await loadImageMetadata(src);
+    box.querySelector(".metadata-status").outerHTML = rows.length
+      ? rows.map((row) => `
+        <div class="metadata-row"${row.clue ? ' data-clue="true"' : ""}>
+          <span>${escapeHtml(row.label)}</span>
+          <strong>${escapeHtml(row.value)}</strong>
+        </div>`).join("")
+      : '<p class="metadata-status">Aucune métadonnée EXIF dans ce fichier.</p>';
+  }
 }
 
 function renderScenarioOptions() {
@@ -1804,6 +1877,7 @@ function renderFeed() {
       <button type="button" id="loadMorePosts" class="text-button">Afficher 72 publications supplémentaires</button>
       <span>${visiblePosts.length} sur ${posts.length} publications affichées</span>
     </div>` : "");
+  fillMediaMetadata(els.feed);
   const loadMoreButton = document.querySelector("#loadMorePosts");
   if (loadMoreButton) {
     loadMoreButton.addEventListener("click", () => {
@@ -2014,6 +2088,7 @@ function renderPost(post) {
         <p class="post-content" lang="${escapeHtml(post.language || post.actor.language || "fr")}">${linkify(escapeHtml(post.content))}</p>
         ${renderPostTranslation(post)}
         ${renderMedia(post.media, post)}
+        ${renderMediaMetadata(post.media, post)}
         <div class="post-foot">
           <div class="stats">
             <span>${formatNumber(post.replies)} réponses</span>
