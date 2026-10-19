@@ -946,6 +946,28 @@ h3 {
   line-height: 1.38;
 }
 
+.x-media-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2px;
+  padding: 2px;
+}
+
+.x-media-grid .post-media.evidence-card {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  aspect-ratio: 1;
+}
+
+.x-media-grid .evidence-image {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  aspect-ratio: auto;
+  object-fit: cover;
+}
+
 .x-reply-context {
   display: block;
   margin-top: 2px;

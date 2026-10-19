@@ -34144,7 +34144,7 @@ function renderProfileTabs(activeKey) {
   }).join("");
 }
 
-function renderProfilePostItem(actor, post, extra = "") {
+function renderProfilePostItem(actor, post) {
   return `
     <article class="x-profile-post">
       ${renderAvatarButton(actor, "avatar-mini")}
@@ -34156,7 +34156,7 @@ function renderProfilePostItem(actor, post, extra = "") {
           <span class="time">&middot; ${escapeHtml(post.relativeTime || post.time)}</span>
         </div>
         <p lang="${escapeHtml(post.language || actor.language || "fr")}">${escapeHtml(post.content)}</p>
-        ${extra}
+        ${renderMedia(post.media, post)}
       </div>
     </article>
   `;
@@ -34202,9 +34202,9 @@ function renderProfileTab(actor, key) {
   }
   const posts = state.posts.filter((post) => post.actor.handle === actor.handle);
   if (key === "media") {
-    const mediaPosts = posts.filter((post) => post.media).slice(0, 10);
-    if (!mediaPosts.length) return '<p class="x-empty">Aucun média publié.</p>';
-    return mediaPosts.map((post) => renderProfilePostItem(actor, post, renderMedia(post.media, post))).join("");
+    const thumbnails = posts.filter((post) => post.media).slice(0, 30).map((post) => renderMedia(post.media, post)).filter(Boolean);
+    if (!thumbnails.length) return '<p class="x-empty">Aucun média publié.</p>';
+    return `<div class="x-media-grid">${thumbnails.join("")}</div>`;
   }
   const recentPosts = posts.slice(0, 4);
   if (!recentPosts.length) return '<p class="x-empty">Aucune publication récente.</p>';
