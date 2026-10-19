@@ -57,6 +57,7 @@ Les fichiers doivent être déposés **à la racine** du dépôt GitHub, et non 
 - `styles.css`
 - `.nojekyll`
 - le dossier `assets`
+- le dossier `data` (un fichier par scénario, chargé à la demande)
 
 Dans GitHub, ouvrir **Settings**, puis **Pages**. Choisir **Deploy from a branch**, sélectionner la branche `main` et le dossier `/ (root)`, puis enregistrer. Le déploiement peut demander quelques minutes.
 
