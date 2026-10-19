@@ -147,6 +147,14 @@
           <input id="liveDbUrl" type="url" placeholder="https://votre-projet-default-rtdb.europe-west1.firebasedatabase.app" autocomplete="off" />
         </label>
         <div class="compose-grid">
+          <label>Clé API Web Firebase
+            <input id="liveApiKey" type="text" autocomplete="off" spellcheck="false" />
+          </label>
+          <label>Identifiant enseignant (à déclarer dans teachers)
+            <input id="liveTeacherId" type="text" readonly />
+          </label>
+        </div>
+        <div class="compose-grid">
           <label>Code de séance
             <input id="liveRoomCode" type="text" maxlength="28" autocomplete="off" />
           </label>
@@ -163,6 +171,7 @@
     </dialog>
 
     <input id="fileInput" type="file" accept="application/json,.json" hidden />
-    <script src="./app.js?v=20261015c"></script>
+    <script src="./config-direct.js?v=20261019a"></script>
+    <script src="./app.js?v=20261019a"></script>
   </body>
 </html>
