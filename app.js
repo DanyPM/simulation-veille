@@ -1715,25 +1715,75 @@ function renderScenarioInfo() {
     .map(([label, value]) => `<div class="meta-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`)
     .join("");
   els.trendList.innerHTML = (scenario.trends || [])
-    .map((trend) => `<div class="trend"><span>${escapeHtml(trend.tag)}</span><span>${escapeHtml(trend.count)}</span></div>`)
+    .map((trend) => `<button type="button" class="trend" data-action="hashtag" data-tag="${escapeHtml(trend.tag)}" aria-label="Voir les publications ${escapeHtml(trend.tag)}"><span>${escapeHtml(trend.tag)}</span><span>${escapeHtml(trend.count)}</span></button>`)
     .join("");
+}
+
+const hashtagPattern = /#[-\p{L}\p{N}_]+/gu;
+
+function normalizeHashtag(tag) {
+  return String(tag || "")
+    .replace(/^#/, "")
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase();
+}
+
+function postHashtags(post) {
+  const text = `${post.content || ""} ${post.translation || ""}`;
+  return new Set((text.match(hashtagPattern) || []).map(normalizeHashtag));
 }
 
 function filteredPosts() {
   const q = state.query.trim().toLowerCase();
+  const tag = state.hashtag ? normalizeHashtag(state.hashtag) : "";
   return state.posts.filter((post) => {
     const matchesFilter =
       state.filter === "all" ||
       (state.filter === "flagged" && state.flags.has(post.id)) ||
       (state.filter === "media" && post.media);
     const haystack = `${post.actor.name} ${post.actor.handle} ${post.content}`.toLowerCase();
-    return matchesFilter && (!q || haystack.includes(q));
+    return matchesFilter && (!q || haystack.includes(q)) && (!tag || postHashtags(post).has(tag));
   });
+}
+
+function renderHashtagHeader(count) {
+  if (!state.hashtag) return "";
+  return `
+    <div class="hashtag-header">
+      <button type="button" class="text-button" data-action="hashtag-back">← Retour au fil</button>
+      <div class="hashtag-title">
+        <h3>${escapeHtml(state.hashtag)}</h3>
+        <span>${count} publication${count > 1 ? "s" : ""}</span>
+      </div>
+    </div>`;
+}
+
+function hashtagFromUrl() {
+  const tag = new URLSearchParams(window.location.search).get("tag");
+  return tag ? `#${tag.replace(/^#/, "")}` : null;
+}
+
+function showHashtag(tag, { push = true } = {}) {
+  const known = tag ? (state.scenario?.trends || []).find((trend) => normalizeHashtag(trend.tag) === normalizeHashtag(tag)) : null;
+  state.hashtag = tag ? (known?.tag || `#${String(tag).replace(/^#/, "")}`) : null;
+  if (push) {
+    const url = new URL(window.location.href);
+    if (state.hashtag) url.searchParams.set("tag", state.hashtag.slice(1));
+    else url.searchParams.delete("tag");
+    if (url.href !== window.location.href) window.history.pushState({ tag: state.hashtag }, "", url);
+  }
+  renderFeed();
+  const shell = document.querySelector(".feed-shell");
+  if (!shell) return;
+  const topbar = document.querySelector(".topbar");
+  const topbarHeight = topbar && ["sticky", "fixed"].includes(getComputedStyle(topbar).position) ? topbar.getBoundingClientRect().height : 0;
+  window.scrollTo({ top: Math.max(0, shell.getBoundingClientRect().top + window.scrollY - topbarHeight) });
 }
 
 function renderFeed() {
   const posts = filteredPosts();
-  const feedKey = `${state.scenario?.id || "none"}:${state.filter}:${state.query.trim().toLowerCase()}`;
+  const feedKey = `${state.scenario?.id || "none"}:${state.filter}:${state.query.trim().toLowerCase()}:${normalizeHashtag(state.hashtag)}`;
   if (state.feedKey !== feedKey) {
     state.feedKey = feedKey;
     state.feedLimit = 72;
@@ -1741,11 +1791,11 @@ function renderFeed() {
   const limit = Math.max(24, Number(state.feedLimit) || 72);
   const visiblePosts = posts.slice(0, limit);
   if (!posts.length) {
-    els.feed.innerHTML = `<div class="panel"><p class="brief">Aucun post ne correspond au filtre actif.</p></div>`;
+    els.feed.innerHTML = `${renderHashtagHeader(0)}<div class="panel"><p class="brief">${state.hashtag ? "Aucune publication ne contient ce hashtag." : "Aucun post ne correspond au filtre actif."}</p></div>`;
     return;
   }
   const remaining = posts.length - visiblePosts.length;
-  els.feed.innerHTML = visiblePosts.map(renderPost).join("") + (remaining > 0 ? `
+  els.feed.innerHTML = renderHashtagHeader(posts.length) + visiblePosts.map(renderPost).join("") + (remaining > 0 ? `
     <div class="feed-load-more">
       <button type="button" id="loadMorePosts" class="text-button">Afficher 72 publications supplémentaires</button>
       <span>${visiblePosts.length} sur ${posts.length} publications affichées</span>
@@ -2021,7 +2071,7 @@ function refreshLiveTimes() {
 }
 
 function linkify(value) {
-  return value.replace(/(#[-\p{L}\p{N}_]+)/gu, '<strong class="hashtag">$1</strong>');
+  return value.replace(/(#[-\p{L}\p{N}_]+)/gu, '<button type="button" class="hashtag" data-action="hashtag" data-tag="$1">$1</button>');
 }
 
 function formatNumber(value) {
@@ -2119,6 +2169,7 @@ async function loadScenario(id) {
   state.posts = mergeLivePosts([...restoreTeacherPosts(state.scenario), ...scenarioPosts(state.scenario)], state.scenario);
   state.flags.clear();
   state.query = "";
+  state.hashtag = null;
   if (els.searchInput) els.searchInput.value = "";
   renderScenarioInfo();
   renderFeed();
@@ -4128,7 +4179,7 @@ async function submitAdminPassword(event) {
 }
 
 function bindEvents() {
-  if (els.scenarioSelect) els.scenarioSelect.addEventListener("change", (event) => { loadScenario(event.target.value).then(announceLiveScenario); });
+  if (els.scenarioSelect) els.scenarioSelect.addEventListener("change", (event) => { loadScenario(event.target.value).then(announceLiveScenario); if (hashtagFromUrl()) showHashtag(null); });
   if (els.searchInput) els.searchInput.addEventListener("input", (event) => {
     state.query = event.target.value;
     renderFeed();
@@ -4152,6 +4203,13 @@ function bindEvents() {
   if (els.startLiveSession) els.startLiveSession.addEventListener("click", startLiveSession);
   if (els.stopLiveSession) els.stopLiveSession.addEventListener("click", stopLiveSession);
   if (els.copyStudentLiveLink) els.copyStudentLiveLink.addEventListener("click", copyStudentLiveLink);
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest('button[data-action="hashtag"], button[data-action="hashtag-back"]');
+    if (!button) return;
+    event.preventDefault();
+    showHashtag(button.dataset.action === "hashtag" ? button.dataset.tag : null);
+  });
+  window.addEventListener("popstate", () => showHashtag(hashtagFromUrl(), { push: false }));
   if (els.feed) els.feed.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-action]");
     if (!button) return;
@@ -4225,6 +4283,7 @@ const requestedScenario = new URLSearchParams(window.location.search).get("scena
 async function startPage() {
   if (isTeacherPage()) await ensureTeacherUnlocked();
   await loadScenario(state.scenarios.some((item) => item.id === requestedScenario) ? requestedScenario : state.scenarios[0].id);
+  if (hashtagFromUrl()) showHashtag(hashtagFromUrl(), { push: false });
 }
 
 // tools/build.js evaluates this file with data-mode="build" to reuse its helpers without starting the page.
