@@ -94,10 +94,11 @@ function createContext(sources) {
     head: element(),
     currentScript: { src: "http://localhost/app.js" },
     createElement: element,
+    addEventListener() {},
     querySelector: () => null,
     querySelectorAll: () => []
   };
-  const window = { location: { search: "", href: "http://localhost/" } };
+  const window = { location: { search: "", href: "http://localhost/" }, history: { pushState() {}, replaceState() {} }, addEventListener() {} };
   const context = vm.createContext({ window, document, console, URL, URLSearchParams, structuredClone, localStorage: { getItem: () => null, setItem() {} } });
   window.document = document;
   for (const file of ["data/assets.js", "data/scenarios/index.js"]) {
@@ -247,7 +248,7 @@ async function main() {
     if (!check) {
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, content);
-    } else if (!fs.existsSync(file) || fs.readFileSync(file, "utf8") !== content) {
+    } else if (!fs.existsSync(file) || fs.readFileSync(file, "utf8").replace(/\r\n/g, "\n") !== content) {
       stale.push(path.relative(root, file));
     }
   }
