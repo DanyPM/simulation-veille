@@ -65,6 +65,7 @@ const els = {
   copyStudentLiveLink: document.querySelector("#copyStudentLiveLink"),
   adminToggle: document.querySelector("#adminToggle"),
   adminDialog: document.querySelector("#adminDialog"),
+  adminCancel: document.querySelector("#adminCancel"),
   adminForm: document.querySelector("#adminForm"),
   adminPassword: document.querySelector("#adminPassword"),
   adminError: document.querySelector("#adminError"),
@@ -3718,7 +3719,6 @@ function toggleAdminMode() {
 }
 
 async function submitAdminPassword(event) {
-  if (event.submitter?.value === "cancel") return;
   event.preventDefault();
   const password = els.adminPassword.value;
   if (!password) return;
@@ -3799,6 +3799,7 @@ function bindEvents() {
   if (els.exportBtn) els.exportBtn.addEventListener("click", exportScenario);
   if (els.adminToggle) els.adminToggle.addEventListener("click", toggleAdminMode);
   if (els.adminForm) els.adminForm.addEventListener("submit", submitAdminPassword);
+  if (els.adminCancel) els.adminCancel.addEventListener("click", () => els.adminDialog.close());
   if (els.teacherToggle) els.teacherToggle.addEventListener("click", () => {
     if (els.scenarioEditor) els.scenarioEditor.value = JSON.stringify(state.scenario, null, 2);
     renderAnswerKey();
