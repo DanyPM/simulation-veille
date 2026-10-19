@@ -103,8 +103,11 @@ function pick(list, random) {
   return list[Math.floor(random() * list.length)];
 }
 
+// Same fields as Date.prototype.toLocaleString; a shared formatter avoids rebuilding the time zone data on every call.
+const parisFormat = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Paris", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric", second: "numeric" });
+
 function parisNow() {
-  return new Date(new Date().toLocaleString("en-US", { timeZone: "Europe/Paris" }));
+  return new Date(parisFormat.format(new Date()));
 }
 
 function scenarioDurationMinutes(scenario) {
