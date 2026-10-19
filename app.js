@@ -1455,12 +1455,124 @@ function openProfile(handle) {
   if (!actor) return;
   const profile = buildProfile(actor);
   els.profileContent.innerHTML = renderProfile(profile);
-  els.profileDialog.showModal();
+  if (!els.profileDialog.open) els.profileDialog.showModal();
+  els.profileContent.scrollIntoView({ block: "start" });
+}
+
+const profileTabs = [
+  { key: "posts", label: "Posts" },
+  { key: "replies", label: "Réponses" },
+  { key: "media", label: "Médias" }
+];
+
+function renderProfileTabs(activeKey) {
+  return profileTabs.map((tab) => {
+    const active = tab.key === activeKey;
+    return `<button type="button" role="tab" id="profileTab-${tab.key}" class="${active ? "is-active" : ""}" data-profile-tab="${tab.key}" aria-selected="${active}" aria-controls="profileTabPanel" tabindex="${active ? 0 : -1}">${tab.label}</button>`;
+  }).join("");
+}
+
+function renderProfilePostItem(actor, post, extra = "") {
+  return `
+    <article class="x-profile-post">
+      ${renderAvatarButton(actor, "avatar-mini")}
+      <div>
+        <div class="post-head compact">
+          <strong>${escapeHtml(actor.name)}</strong>
+          ${actor.verified ? `<span class="badge" title="Compte certifié" aria-label="Compte certifié">&#10003;</span>` : ""}
+          <span class="handle">${escapeHtml(actor.handle)}</span>
+          <span class="time">&middot; ${escapeHtml(post.relativeTime || post.time)}</span>
+        </div>
+        <p lang="${escapeHtml(post.language || actor.language || "fr")}">${escapeHtml(post.content)}</p>
+        ${extra}
+      </div>
+    </article>
+  `;
+}
+
+function profileReplies(actor, limit = 20) {
+  const replies = [];
+  for (const post of state.posts) {
+    if (replies.length >= limit) break;
+    if (post.actor.handle === actor.handle) continue;
+    postComments(post)
+      .filter((comment) => comment.actor.handle === actor.handle)
+      .forEach((comment) => replies.push({ comment, post }));
+  }
+  return replies.slice(0, limit);
+}
+
+function excerpt(text, length = 140) {
+  const value = String(text || "");
+  return value.length > length ? `${value.slice(0, length).trimEnd()}…` : value;
+}
+
+function renderProfileTab(actor, key) {
+  if (key === "replies") {
+    const replies = profileReplies(actor);
+    if (!replies.length) return '<p class="x-empty">Aucune réponse récente.</p>';
+    return replies.map(({ comment, post }) => `
+      <article class="x-profile-post">
+        ${renderAvatarButton(actor, "avatar-mini")}
+        <div>
+          <div class="post-head compact">
+            <strong>${escapeHtml(actor.name)}</strong>
+            ${actor.verified ? `<span class="badge" title="Compte certifié" aria-label="Compte certifié">&#10003;</span>` : ""}
+            <span class="handle">${escapeHtml(actor.handle)}</span>
+            <span class="time">&middot; ${escapeHtml(post.relativeTime || post.time)}</span>
+          </div>
+          <span class="x-reply-context">En réponse à <button type="button" class="profile-name" data-action="profile" data-handle="${escapeHtml(post.actor.handle)}">${escapeHtml(post.actor.handle)}</button></span>
+          <p>${escapeHtml(comment.content)}</p>
+          <blockquote class="x-reply-parent" lang="${escapeHtml(post.language || post.actor.language || "fr")}">${escapeHtml(excerpt(post.content))}</blockquote>
+        </div>
+      </article>
+    `).join("");
+  }
+  const posts = state.posts.filter((post) => post.actor.handle === actor.handle);
+  if (key === "media") {
+    const mediaPosts = posts.filter((post) => post.media).slice(0, 10);
+    if (!mediaPosts.length) return '<p class="x-empty">Aucun média publié.</p>';
+    return mediaPosts.map((post) => renderProfilePostItem(actor, post, renderMedia(post.media, post))).join("");
+  }
+  const recentPosts = posts.slice(0, 4);
+  if (!recentPosts.length) return '<p class="x-empty">Aucune publication récente.</p>';
+  return recentPosts.map((post) => renderProfilePostItem(actor, post)).join("");
+}
+
+function selectProfileTab(tab, focus = false) {
+  const tablist = tab.closest(".x-tabs");
+  const panel = els.profileContent.querySelector("#profileTabPanel");
+  const actor = state.scenario.actors.find((item) => item.handle === tablist?.dataset.handle);
+  if (!tablist || !panel || !actor) return;
+  tablist.querySelectorAll("[role='tab']").forEach((item) => {
+    const active = item === tab;
+    item.classList.toggle("is-active", active);
+    item.setAttribute("aria-selected", String(active));
+    item.tabIndex = active ? 0 : -1;
+  });
+  panel.setAttribute("aria-labelledby", tab.id);
+  panel.innerHTML = renderProfileTab(actor, tab.dataset.profileTab);
+  if (focus) tab.focus();
+}
+
+function handleProfileTabKeys(event) {
+  const tab = event.target.closest("[role='tab']");
+  if (!tab) return;
+  const tabs = [...tab.closest(".x-tabs").querySelectorAll("[role='tab']")];
+  const index = tabs.indexOf(tab);
+  const next = {
+    ArrowRight: tabs[(index + 1) % tabs.length],
+    ArrowLeft: tabs[(index - 1 + tabs.length) % tabs.length],
+    Home: tabs[0],
+    End: tabs[tabs.length - 1]
+  }[event.key];
+  if (!next) return;
+  event.preventDefault();
+  selectProfileTab(next, true);
 }
 
 function renderProfile(profile) {
   const actor = profile.actor;
-  const recentPosts = profile.posts.length ? profile.posts : state.posts.filter((post) => post.actor.handle === actor.handle).slice(0, 5);
   return `
     <section class="profile-page">
       <div class="x-cover" style="--avatar-hue:${profileHue(actor)}"></div>
@@ -1480,26 +1592,11 @@ function renderProfile(profile) {
         <span>${formatCompact(profile.dailyPosts)} posts aujourd'hui</span>
         <span>Langue principale : ${escapeHtml(accountLanguageLabel(actor))}</span>
       </div>
-      <div class="x-tabs" aria-label="Navigation du profil">
-        <span class="is-active">Posts</span>
-        <span>Réponses</span>
-        <span>Médias</span>
+      <div class="x-tabs" role="tablist" aria-label="Navigation du profil" data-handle="${escapeHtml(actor.handle)}">
+        ${renderProfileTabs("posts")}
       </div>
-      <div class="x-profile-posts">
-        ${recentPosts.length ? recentPosts.map((post) => `
-          <article class="x-profile-post">
-            ${renderAvatarButton(actor, "avatar-mini")}
-            <div>
-              <div class="post-head compact">
-                <strong>${escapeHtml(actor.name)}</strong>
-                ${actor.verified ? `<span class="badge" title="Compte certifié" aria-label="Compte certifié">&#10003;</span>` : ""}
-                <span class="handle">${escapeHtml(actor.handle)}</span>
-                <span class="time">&middot; ${escapeHtml(post.relativeTime || post.time)}</span>
-              </div>
-              <p lang="${escapeHtml(post.language || actor.language || "fr")}">${escapeHtml(post.content)}</p>
-            </div>
-          </article>
-        `).join("") : '<p class="x-empty">Aucune publication récente.</p>'}
+      <div class="x-profile-posts" id="profileTabPanel" role="tabpanel" aria-labelledby="profileTab-posts">
+        ${renderProfileTab(actor, "posts")}
       </div>
     </section>
   `;
@@ -4073,6 +4170,21 @@ function bindEvents() {
       }
     }
   });
+  if (els.profileContent) {
+    els.profileContent.addEventListener("click", (event) => {
+      const tab = event.target.closest("[data-profile-tab]");
+      if (tab) {
+        event.preventDefault();
+        selectProfileTab(tab);
+        return;
+      }
+      const button = event.target.closest("button[data-action='profile']");
+      if (!button) return;
+      event.preventDefault();
+      openProfile(button.dataset.handle);
+    });
+    els.profileContent.addEventListener("keydown", handleProfileTabKeys);
+  }
   if (els.clearFlags) els.clearFlags.addEventListener("click", () => {
     state.flags.clear();
     renderFeed();

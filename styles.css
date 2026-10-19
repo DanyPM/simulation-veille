@@ -892,12 +892,25 @@ h3 {
   border-bottom: 1px solid var(--line);
 }
 
-.x-tabs span {
+.x-tabs [role="tab"] {
   position: relative;
+  border: 0;
   padding: 14px 8px;
+  background: none;
   color: var(--muted);
+  font: inherit;
   font-weight: 800;
   text-align: center;
+  cursor: pointer;
+}
+
+.x-tabs [role="tab"]:hover {
+  color: var(--ink);
+}
+
+.x-tabs [role="tab"]:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: -2px;
 }
 
 .x-tabs .is-active {
@@ -931,6 +944,27 @@ h3 {
   margin-top: 4px;
   color: #263546;
   line-height: 1.38;
+}
+
+.x-reply-context {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.x-reply-context .profile-name {
+  color: var(--blue);
+  font-weight: 600;
+}
+
+.x-reply-parent {
+  margin: 8px 0 0;
+  border-left: 3px solid var(--line);
+  padding: 4px 0 4px 10px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.35;
 }
 
 .post-head.compact {
